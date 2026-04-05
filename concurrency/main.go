@@ -7,59 +7,66 @@ import (
 	"time"
 )
 
-func main() {
-	rand.Seed(time.Now().UnixNano())
+// ============================================================
+// TOPIC: Concurrency - Goroutines, Channels, Context
+// ============================================================
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+// --- EXAMPLE ---
+
+func main() {
+	// --- GOROUTINES + CHANNELS ---
+	// Channels let goroutines communicate safely
+	results := make(chan string, 3) // buffered channel
+
+	go fetchService("payments", results)
+	go fetchService("analytics", results)
+	go fetchService("notifications", results)
+
+	// Collect results
+	for i := 0; i < 3; i++ {
+		fmt.Println("Result:", <-results)
+	}
+
+	// --- CONTEXT WITH TIMEOUT ---
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	results := make(chan string)
-	go fetchService(ctx, "payments", results)
-	go fetchService(ctx, "analytics", results)
-	go fetchService(ctx, "notifications", results)
-
-	done := make(chan struct{})
+	ch := make(chan string, 1)
 	go func() {
-		for res := range results {
-			fmt.Println("result:", res)
-		}
-		close(done)
+		time.Sleep(500 * time.Millisecond)
+		ch <- "done"
 	}()
 
 	select {
-	case <-done:
-		fmt.Println("all services responded")
+	case msg := <-ch:
+		fmt.Println("Got:", msg)
 	case <-ctx.Done():
-		fmt.Println("timeout waiting for services:", ctx.Err())
+		fmt.Println("Timeout:", ctx.Err())
 	}
 
+	// --- PIPELINE PATTERN ---
 	pipeline := make(chan int)
 	squares := make(chan int)
 
 	go producer(pipeline, 5)
 	go squareWorker(pipeline, squares)
-	go consumer(squares)
 
-	time.Sleep(3 * time.Second)
+	// Consumer runs in main goroutine
+	for v := range squares {
+		fmt.Println("Square:", v)
+	}
 }
 
-func fetchService(ctx context.Context, name string, out chan<- string) {
-	delay := time.Duration(500+rand.Intn(1200)) * time.Millisecond
-
-	select {
-	case <-time.After(delay):
-		out <- fmt.Sprintf("%s responded in %s", name, delay)
-	case <-ctx.Done():
-		fmt.Printf("%s canceled: %v\n", name, ctx.Err())
-		return
-	}
+func fetchService(name string, out chan<- string) {
+	delay := time.Duration(100+rand.Intn(300)) * time.Millisecond
+	time.Sleep(delay)
+	out <- fmt.Sprintf("%s responded in %s", name, delay)
 }
 
 func producer(out chan<- int, count int) {
 	defer close(out)
 	for i := 1; i <= count; i++ {
 		out <- i
-		time.Sleep(200 * time.Millisecond)
 	}
 }
 
@@ -70,8 +77,30 @@ func squareWorker(in <-chan int, out chan<- int) {
 	}
 }
 
-func consumer(in <-chan int) {
-	for v := range in {
-		fmt.Println("square:", v)
-	}
-}
+// ============================================================
+// PRACTICE QUESTIONS
+// ============================================================
+//
+// Q1: Launch 5 goroutines that each print their index.
+//     Use sync.WaitGroup to wait for all to finish.
+//
+// Q2: Create a channel of ints. Send numbers 1-10 in a
+//     goroutine, close the channel, then range over it
+//     in main to print them.
+//
+// Q3: Write a fan-out pattern: one producer sends work to
+//     3 worker goroutines via a shared channel.
+//
+// Q4: Use `select` with two channels and a timeout:
+//       ch1 sends after 1s, ch2 sends after 2s,
+//       timeout after 1.5s. What gets printed?
+//
+// Q5: What happens if you send to an unbuffered channel
+//     with no receiver? (Answer: deadlock!)
+//     Try: ch := make(chan int); ch <- 1
+//
+// Q6: Use context.WithCancel() to cancel a long-running
+//     goroutine. The goroutine should check ctx.Done()
+//     in a select loop.
+//
+// ============================================================
